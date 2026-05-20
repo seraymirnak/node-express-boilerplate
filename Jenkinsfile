@@ -53,7 +53,7 @@ pipeline {
                 withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
                     sh """
                         docker run --rm \
-                          -v /var/jenkins_home/workspace/Node-Express-HD-Pipeline:/usr/src \
+                          -v ${env.WORKSPACE}:/usr/src \
                           sonarsource/sonar-scanner-cli \
                           -Dsonar.organization=${SONAR_ORG} \
                           -Dsonar.projectKey=${SONAR_PROJECT} \
@@ -223,13 +223,10 @@ pipeline {
 
     post {
         success {
-            echo "╔══════════════════════════════════════════════╗\n║ ✅ PIPELINE COMPLETED SUCCESSFULLY ║\n╚══════════════════════════════════════════════╝"
+            echo "SUCCESS: Pipeline completed flawlessly!"
         }
         failure {
-            echo '❌ Pipeline failed — check stage logs above for details.'
+            echo 'ERROR: Pipeline failed — check stage logs above for details.'
         }
     }
 }
-
-http://googleusercontent.com/immersive_entry_chip/0
-
