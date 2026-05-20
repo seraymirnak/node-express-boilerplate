@@ -1,4 +1,4 @@
-pipeline {
+  pipeline {
     agent any
 
     environment {
@@ -49,19 +49,37 @@ pipeline {
         // ─────────────────────────────────────────────
         stage('Code Quality') {
             steps {
-                echo '🔍 Running SonarCloud static analysis via Docker CLI...'
+                echo '🔍 Running SonarCloud static analysis via Docker CLI with Named Volumes...'
                 withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
-                    sh """
+                    sh '''
+                        # Clean up legacy resources for a fresh start
+                        docker rm -f sonar-temp || true
+                        docker volume rm sonar-data || true
+                        
+                        # Create a secure Docker Named Volume
+                        docker volume create sonar-data
+                        
+                        # Create a temporary carrier container
+                        docker create --name sonar-temp -v sonar-data:/usr/src alpine
+                        
+                        # Copy all workspace files into the volume to resolve the 0-files indexing issue
+                        docker cp . sonar-temp:/usr/src
+                        
+                        # Trigger SonarScanner CLI over the populated secure volume area
                         docker run --rm \
-                          -v ${env.WORKSPACE}:/usr/src \
+                          -v sonar-data:/usr/src \
                           sonarsource/sonar-scanner-cli \
-                          -Dsonar.organization=${SONAR_ORG} \
-                          -Dsonar.projectKey=${SONAR_PROJECT} \
+                          -Dsonar.organization=seraymirnak \
+                          -Dsonar.projectKey=seraymirnak_node-express-boilerplate \
                           -Dsonar.sources=. \
                           -Dsonar.exclusions=**/node_modules/**,**/*.test.js \
                           -Dsonar.host.url=https://sonarcloud.io \
-                          -Dsonar.token=${SONAR_TOKEN}
-                    """
+                          -Dsonar.token=$SONAR_TOKEN
+                          
+                        # Perform post-analysis cleanup
+                        docker rm -f sonar-temp || true
+                        docker volume rm sonar-data || true
+                    '''
                 }
             }
         }
@@ -94,12 +112,11 @@ pipeline {
                 echo '🚀 Deploying to Staging environment (port 3001)...'
                 sh 'docker network create app-network || true'
                 
-                // Connect Jenkins itself to the network so it can execute real network curls
+                # Connect the Jenkins host container to the shared network
                 sh 'docker network connect app-network jenkins-local || true'
 
                 sh 'docker rm -f mongo-staging || true'
                 sh 'docker run -d --name mongo-staging --network app-network mongo:6'
-                sh 'sleep 5'
 
                 sh 'docker rm -f node-app-staging || true'
                 sh """
@@ -119,20 +136,35 @@ pipeline {
                       -e EMAIL_FROM=staging@example.com \
                       ${DOCKER_IMAGE}:${DOCKER_TAG}
                 """
-                sh 'sleep 8'
-                // Networks-based healthcheck via internal container name and port 3000
-                sh 'curl -sf http://node-app-staging:3000/v1/docs/ && echo "✅ Staging health check PASSED" || echo "⚠️ Staging health check failed"'
+                
+                echo '🔍 Waiting for Staging application to boot and initialize database connections...'
+                sh '''
+                    success=false
+                    for i in $(seq 1 15); do
+                        if docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-staging:3000/v1/docs/ >/dev/null; then
+                            echo "✅ Staging health check PASSED"
+                            success=true
+                            break
+                        fi
+                        echo "Waiting for staging app... (attempt $i/15)"
+                        sleep 3
+                    done
+                    if [ "$success" = "false" ]; then
+                        echo "❌ Staging health check failed after 45 seconds"
+                        exit 1
+                    fi
+                '''
             }
         }
 
         // ─────────────────────────────────────────────
-        // STAGE 6 — RELEASE (Docker Hub push)
+        // STAGE 6 — RELEASE
         // ─────────────────────────────────────────────
         stage('Release') {
             steps {
                 echo "🏷️ Releasing version ${DOCKER_TAG} to Docker Hub..."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                     sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
                     sh "docker push ${DOCKER_IMAGE}:latest"
                     sh 'docker logout'
@@ -150,7 +182,6 @@ pipeline {
 
                 sh 'docker rm -f node-app-prod mongo-prod || true'
                 sh 'docker run -d --name mongo-prod --network app-network mongo:6'
-                sh 'sleep 5'
                 sh """
                     docker run -d \
                       -p 3000:3000 \
@@ -168,9 +199,8 @@ pipeline {
                       -e EMAIL_FROM=prod@example.com \
                       ${DOCKER_IMAGE}:${DOCKER_TAG}
                 """
-                sh 'sleep 8'
 
-                // cAdvisor
+                // cAdvisor Container Monitoring Agent
                 sh 'docker rm -f cadvisor || true'
                 sh '''
                     docker run -d \
@@ -184,13 +214,13 @@ pipeline {
                     echo "cAdvisor skipped — using docker stats inside report"
                 '''
 
-                // Prometheus with hot-copy deployment to bypass Docker-out-of-Docker mount traps
+                // Prometheus Configuration
                 sh 'docker rm -f prometheus || true'
                 sh 'docker run -d --name prometheus --network app-network -p 9090:9090 prom/prometheus:latest'
                 sh 'docker cp prometheus.yml prometheus:/etc/prometheus/prometheus.yml'
                 sh 'docker restart prometheus'
 
-                // Grafana
+                // Grafana Dashboard Deployment
                 sh 'docker rm -f grafana || true'
                 sh '''
                     docker run -d \
@@ -200,18 +230,32 @@ pipeline {
                       -e GF_SECURITY_ADMIN_PASSWORD=admin \
                       grafana/grafana:latest
                 '''
-                sh 'sleep 10'
-
-                // Live metrics & health reports execution
+                
+                echo '🔍 Waiting for Production application and monitoring services to initialize...'
                 sh '''
-                    echo ""
                     echo "════════════════════════════════════════"
                     echo "      PRODUCTION MONITORING REPORT      "
                     echo "════════════════════════════════════════"
                     echo ""
-                    curl -sf http://node-app-prod:3000/v1/docs/ && echo "✅ Production app is HEALTHY" || echo "❌ Production app UNREACHABLE"
-                    curl -sf http://prometheus:9090/-/ready && echo "✅ Prometheus is READY" || echo "⚠️ Prometheus not ready"
-                    curl -sf http://grafana:3000/api/health && echo "✅ Grafana is RUNNING" || echo "⚠️ Grafana not ready"
+                    
+                    app_success=false
+                    for i in $(seq 1 15); do
+                        if docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-prod:3000/v1/docs/ >/dev/null; then
+                            echo "✅ Production app is HEALTHY"
+                            app_success=true
+                            break
+                        fi
+                        echo "Waiting for production app... (attempt $i/15)"
+                        sleep 3
+                    done
+                    
+                    if [ "$app_success" = false ]; then
+                        echo "❌ Production app UNREACHABLE"
+                        exit 1
+                    fi
+                    
+                    docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://prometheus:9090/-/ready && echo "✅ Prometheus is READY" || echo "⚠️ Prometheus not ready"
+                    docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://grafana:3000/api/health && echo "✅ Grafana is RUNNING" || echo "⚠️ Grafana not ready"
                     echo ""
                     docker stats --no-stream node-app-prod mongo-prod 2>/dev/null || true
                     echo ""
