@@ -50,7 +50,6 @@ pipeline {
         stage('Code Quality') {
             steps {
                 echo '🔍 Running SonarCloud static analysis via Docker CLI...'
-                // Using Jenkins secure credentials storage for the Sonar token
                 withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
                     sh """
                         docker run --rm \
@@ -73,7 +72,6 @@ pipeline {
         stage('Security Scan') {
             steps {
                 echo '🔐 Running npm audit security vulnerability scan inside the container...'
-                // Run audit inside the built container image to avoid host dependency issues
                 sh "docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} npm audit --json > npm-audit-report.json || true"
                 sh """
                     echo "===== SECURITY AUDIT SUMMARY ====="
@@ -95,6 +93,9 @@ pipeline {
             steps {
                 echo '🚀 Deploying to Staging environment (port 3001)...'
                 sh 'docker network create app-network || true'
+                
+                // Connect Jenkins itself to the network so it can execute real network curls
+                sh 'docker network connect app-network jenkins-local || true'
 
                 sh 'docker rm -f mongo-staging || true'
                 sh 'docker run -d --name mongo-staging --network app-network mongo:6'
@@ -119,7 +120,8 @@ pipeline {
                       ${DOCKER_IMAGE}:${DOCKER_TAG}
                 """
                 sh 'sleep 8'
-                sh 'curl -sf http://localhost:3001/v1/docs/ && echo "✅ Staging health check PASSED" || echo "⚠️ Staging health check failed"'
+                // Networks-based healthcheck via internal container name and port 3000
+                sh 'curl -sf http://node-app-staging:3000/v1/docs/ && echo "✅ Staging health check PASSED" || echo "⚠️ Staging health check failed"'
             }
         }
 
@@ -207,9 +209,9 @@ pipeline {
                     echo "      PRODUCTION MONITORING REPORT      "
                     echo "════════════════════════════════════════"
                     echo ""
-                    curl -sf http://localhost:3000/v1/docs/ && echo "✅ Production app is HEALTHY" || echo "❌ Production app UNREACHABLE"
-                    curl -sf http://localhost:9090/-/ready && echo "✅ Prometheus is READY" || echo "⚠️ Prometheus not ready"
-                    curl -sf http://localhost:3002/api/health && echo "✅ Grafana is RUNNING" || echo "⚠️ Grafana not ready"
+                    curl -sf http://node-app-prod:3000/v1/docs/ && echo "✅ Production app is HEALTHY" || echo "❌ Production app UNREACHABLE"
+                    curl -sf http://prometheus:9090/-/ready && echo "✅ Prometheus is READY" || echo "⚠️ Prometheus not ready"
+                    curl -sf http://grafana:3000/api/health && echo "✅ Grafana is RUNNING" || echo "⚠️ Grafana not ready"
                     echo ""
                     docker stats --no-stream node-app-prod mongo-prod 2>/dev/null || true
                     echo ""
@@ -228,3 +230,6 @@ pipeline {
         }
     }
 }
+
+http://googleusercontent.com/immersive_entry_chip/0
+
