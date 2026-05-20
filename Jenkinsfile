@@ -1,4 +1,4 @@
-  pipeline {
+pipeline {
     agent any
 
     environment {
@@ -112,7 +112,7 @@
                 echo '🚀 Deploying to Staging environment (port 3001)...'
                 sh 'docker network create app-network || true'
                 
-                # Connect the Jenkins host container to the shared network
+                // Connect the Jenkins host container to the shared network safely
                 sh 'docker network connect app-network jenkins-local || true'
 
                 sh 'docker rm -f mongo-staging || true'
@@ -234,43 +234,4 @@
                 echo '🔍 Waiting for Production application and monitoring services to initialize...'
                 sh '''
                     echo "════════════════════════════════════════"
-                    echo "      PRODUCTION MONITORING REPORT      "
-                    echo "════════════════════════════════════════"
-                    echo ""
-                    
-                    app_success=false
-                    for i in $(seq 1 15); do
-                        if docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-prod:3000/v1/docs/ >/dev/null; then
-                            echo "✅ Production app is HEALTHY"
-                            app_success=true
-                            break
-                        fi
-                        echo "Waiting for production app... (attempt $i/15)"
-                        sleep 3
-                    done
-                    
-                    if [ "$app_success" = false ]; then
-                        echo "❌ Production app UNREACHABLE"
-                        exit 1
-                    fi
-                    
-                    docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://prometheus:9090/-/ready && echo "✅ Prometheus is READY" || echo "⚠️ Prometheus not ready"
-                    docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://grafana:3000/api/health && echo "✅ Grafana is RUNNING" || echo "⚠️ Grafana not ready"
-                    echo ""
-                    docker stats --no-stream node-app-prod mongo-prod 2>/dev/null || true
-                    echo ""
-                    echo "════════════════════════════════════════"
-                '''
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "SUCCESS: Pipeline completed flawlessly!"
-        }
-        failure {
-            echo 'ERROR: Pipeline failed — check stage logs above for details.'
-        }
-    }
-}
+                    echo "      PRODUCTION
