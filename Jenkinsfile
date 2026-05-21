@@ -77,7 +77,6 @@ pipeline {
                 sh "docker rm -f mongo-staging || true"
                 sh "docker run -d --name mongo-staging --network app-network mongo:6"
                 sh "docker rm -f node-app-staging || true"
-                // Fixed: Set NODE_ENV to development to unleash Swagger UI routes
                 sh "docker run -d -p 3001:3000 --name node-app-staging --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-staging:27017/node-express-staging -e JWT_SECRET=stagingSecretKeyLongEnough123 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=staging_user -e SMTP_PASSWORD=staging_pass -e EMAIL_FROM=staging@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 echo '🔍 Waiting for Staging application to boot safely...'
                 sh "sleep 15"
@@ -109,8 +108,8 @@ pipeline {
                 echo '📊 Starting production environment + monitoring stack...'
                 sh "docker rm -f node-app-prod mongo-prod || true"
                 sh "docker run -d --name mongo-prod --network app-network mongo:6"
-                // Fixed: Set NODE_ENV to development to activate Swagger /v1/docs
-                sh "docker run -d -p 3000:3000 --name node-app-prod --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-prod:27017/node-express-prod -e JWT_SECRET=prodSecretKeyUltraSecureLongEnough2026 Caps -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=prod_user -e SMTP_PASSWORD=prod_pass -e EMAIL_FROM=prod@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                // Typos fixed: Removed the accidental 'Caps' string from the command line below
+                sh "docker run -d -p 3000:3000 --name node-app-prod --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-prod:27017/node-express-prod -e JWT_SECRET=prodSecretKeyUltraSecureLongEnough2026 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=prod_user -e SMTP_PASSWORD=prod_pass -e EMAIL_FROM=prod@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 
                 sh "docker rm -f cadvisor || true"
                 sh "docker run -d --name cadvisor --network app-network -p 8081:8080 --volume=/var/run:/var/run:ro --volume=/sys:/sys:ro --volume=/var/lib/docker/:/var/lib/docker:ro gcr.io/cadvisor/cadvisor:latest || true"
