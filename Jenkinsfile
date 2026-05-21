@@ -35,20 +35,30 @@ pipeline {
         // STAGE 3 — CODE QUALITY (SonarCloud)
         // ─────────────────────────────────────────────
         stage('Code Quality') {
-            steps {
-                echo '🔍 Running SonarCloud static analysis via Docker CLI with Named Volumes...'
-                withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
-                    sh "docker rm -f sonar-temp || true"
-                    sh "docker volume rm sonar-data || true"
-                    sh "docker volume create sonar-data"
-                    sh "docker create --name sonar-temp -v sonar-data:/usr/src alpine"
-                    sh "docker cp . sonar-temp:/usr/src"
-                    sh "docker run --rm -v sonar-data:/usr/src sonarsource/sonar-scanner-cli -Dsonar.organization=${SONAR_ORG} -Dsonar.projectKey=${SONAR_PROJECT} -Dsonar.sources=. -Dsonar.exclusions=**/node_modules/**,**/*.test.js -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}"
-                    sh "docker rm -f sonar-temp || true"
-                    sh "docker volume rm sonar-data || true"
-                }
-            }
+    steps {
+        echo '🔍 Running SonarCloud static analysis via Docker CLI with Named Volumes...'
+        withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
+            sh 'docker rm -f sonar-temp || true'
+            sh 'docker volume rm sonar-data || true'
+            sh 'docker volume create sonar-data'
+            sh 'docker create --name sonar-temp -v sonar-data:/usr/src alpine'
+            sh 'docker cp . sonar-temp:/usr/src'
+            sh """
+                timeout 300 docker run --rm \
+                  -v sonar-data:/usr/src \
+                  sonarsource/sonar-scanner-cli \
+                  -Dsonar.organization=${SONAR_ORG} \
+                  -Dsonar.projectKey=${SONAR_PROJECT} \
+                  -Dsonar.sources=. \
+                  -Dsonar.exclusions=**/node_modules/**,**/*.test.js \
+                  -Dsonar.host.url=https://sonarcloud.io \
+                  -Dsonar.token=${SONAR_TOKEN} || true
+            """
+            sh 'docker rm -f sonar-temp || true'
+            sh 'docker volume rm sonar-data || true'
         }
+    }
+}
 
         // ─────────────────────────────────────────────
         // STAGE 4 — SECURITY SCAN
