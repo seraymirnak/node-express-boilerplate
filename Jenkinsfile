@@ -43,7 +43,8 @@ pipeline {
                     sh "docker volume create sonar-data"
                     sh "docker create --name sonar-temp -v sonar-data:/usr/src alpine"
                     sh "docker cp . sonar-temp:/usr/src"
-                    sh "docker run --rm -v sonar-data:/usr/src sonarsource/sonar-scanner-cli -Dsonar.organization=${SONAR_ORG} -Dsonar.projectKey=${SONAR_PROJECT} -Dsonar.sources=. -Dsonar.exclusions=**/node_modules/**,**/*.test.js -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}"
+                    // Fixed: Added '-Dsonar.scm.disabled=true' to bypass git history timeouts entirely
+                    sh "docker run --rm -v sonar-data:/usr/src sonarsource/sonar-scanner-cli -Dsonar.organization=${SONAR_ORG} -Dsonar.projectKey=${SONAR_PROJECT} -Dsonar.sources=. -Dsonar.exclusions=**/node_modules/**,**/*.test.js -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN} -Dsonar.scm.disabled=true"
                     sh "docker rm -f sonar-temp || true"
                     sh "docker volume rm sonar-data || true"
                 }
@@ -119,7 +120,6 @@ pipeline {
                 sh "docker restart prometheus"
                 
                 sh "docker rm -f grafana || true"
-                // Fixed: Added '-v grafana-storage:/var/lib/grafana' to inject a persistent database volume
                 sh "docker run -d --name grafana --network app-network -p 3002:3000 -v grafana-storage:/var/lib/grafana -e GF_SECURITY_ADMIN_PASSWORD=admin grafana/grafana:latest"
                 
                 echo '🔍 Verifying health reports for production stack...'
