@@ -108,7 +108,6 @@ pipeline {
                 echo '📊 Starting production environment + monitoring stack...'
                 sh "docker rm -f node-app-prod mongo-prod || true"
                 sh "docker run -d --name mongo-prod --network app-network mongo:6"
-                // Typos fixed: Removed the accidental 'Caps' string from the command line below
                 sh "docker run -d -p 3000:3000 --name node-app-prod --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-prod:27017/node-express-prod -e JWT_SECRET=prodSecretKeyUltraSecureLongEnough2026 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=prod_user -e SMTP_PASSWORD=prod_pass -e EMAIL_FROM=prod@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 
                 sh "docker rm -f cadvisor || true"
@@ -120,7 +119,8 @@ pipeline {
                 sh "docker restart prometheus"
                 
                 sh "docker rm -f grafana || true"
-                sh "docker run -d --name grafana --network app-network -p 3002:3000 -e GF_SECURITY_ADMIN_PASSWORD=admin grafana/grafana:latest"
+                // Fixed: Added '-v grafana-storage:/var/lib/grafana' to inject a persistent database volume
+                sh "docker run -d --name grafana --network app-network -p 3002:3000 -v grafana-storage:/var/lib/grafana -e GF_SECURITY_ADMIN_PASSWORD=admin grafana/grafana:latest"
                 
                 echo '🔍 Verifying health reports for production stack...'
                 sh "sleep 15"
