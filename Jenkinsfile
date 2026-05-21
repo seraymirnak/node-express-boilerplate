@@ -35,30 +35,20 @@ pipeline {
         // STAGE 3 — CODE QUALITY (SonarCloud)
         // ─────────────────────────────────────────────
         stage('Code Quality') {
-    steps {
-        echo '🔍 Running SonarCloud static analysis via Docker CLI with Named Volumes...'
-        withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
-            sh 'docker rm -f sonar-temp || true'
-            sh 'docker volume rm sonar-data || true'
-            sh 'docker volume create sonar-data'
-            sh 'docker create --name sonar-temp -v sonar-data:/usr/src alpine'
-            sh 'docker cp . sonar-temp:/usr/src'
-            sh """
-                timeout 300 docker run --rm \
-                  -v sonar-data:/usr/src \
-                  sonarsource/sonar-scanner-cli \
-                  -Dsonar.organization=${SONAR_ORG} \
-                  -Dsonar.projectKey=${SONAR_PROJECT} \
-                  -Dsonar.sources=. \
-                  -Dsonar.exclusions=**/node_modules/**,**/*.test.js \
-                  -Dsonar.host.url=https://sonarcloud.io \
-                  -Dsonar.token=${SONAR_TOKEN} || true
-            """
-            sh 'docker rm -f sonar-temp || true'
-            sh 'docker volume rm sonar-data || true'
+            steps {
+                echo '🔍 Running SonarCloud static analysis via Docker CLI with Named Volumes...'
+                withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
+                    sh "docker rm -f sonar-temp || true"
+                    sh "docker volume rm sonar-data || true"
+                    sh "docker volume create sonar-data"
+                    sh "docker create --name sonar-temp -v sonar-data:/usr/src alpine"
+                    sh "docker cp . sonar-temp:/usr/src"
+                    sh "docker run --rm -v sonar-data:/usr/src sonarsource/sonar-scanner-cli -Dsonar.organization=${SONAR_ORG} -Dsonar.projectKey=${SONAR_PROJECT} -Dsonar.sources=. -Dsonar.exclusions=**/node_modules/**,**/*.test.js -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=${SONAR_TOKEN}"
+                    sh "docker rm -f sonar-temp || true"
+                    sh "docker volume rm sonar-data || true"
+                }
+            }
         }
-    }
-}
 
         // ─────────────────────────────────────────────
         // STAGE 4 — SECURITY SCAN
@@ -87,11 +77,11 @@ pipeline {
                 sh "docker rm -f mongo-staging || true"
                 sh "docker run -d --name mongo-staging --network app-network mongo:6"
                 sh "docker rm -f node-app-staging || true"
-                // Fixed: Changed NODE_ENV to production to prevent Joi schema validation crashes
-                sh "docker run -d -p 3001:3000 --name node-app-staging --network app-network -e NODE_ENV=production -e MONGODB_URL=mongodb://mongo-staging:27017/node-express-staging -e JWT_SECRET=stagingSecretKeyLongEnough123 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=staging_user -e SMTP_PASSWORD=staging_pass -e EMAIL_FROM=staging@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                // Fixed: Set NODE_ENV to development to unleash Swagger UI routes
+                sh "docker run -d -p 3001:3000 --name node-app-staging --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-staging:27017/node-express-staging -e JWT_SECRET=stagingSecretKeyLongEnough123 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=staging_user -e SMTP_PASSWORD=staging_pass -e EMAIL_FROM=staging@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 echo '🔍 Waiting for Staging application to boot safely...'
                 sh "sleep 15"
-                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-staging:3000/v1/docs/ || echo 'Staging application container is booting up initial storage links.'"
+                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-staging:3000/v1/docs/"
             }
         }
 
@@ -119,7 +109,8 @@ pipeline {
                 echo '📊 Starting production environment + monitoring stack...'
                 sh "docker rm -f node-app-prod mongo-prod || true"
                 sh "docker run -d --name mongo-prod --network app-network mongo:6"
-                sh "docker run -d -p 3000:3000 --name node-app-prod --network app-network -e NODE_ENV=production -e MONGODB_URL=mongodb://mongo-prod:27017/node-express-prod -e JWT_SECRET=prodSecretKeyUltraSecureLongEnough2026 -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=prod_user -e SMTP_PASSWORD=prod_pass -e EMAIL_FROM=prod@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                // Fixed: Set NODE_ENV to development to activate Swagger /v1/docs
+                sh "docker run -d -p 3000:3000 --name node-app-prod --network app-network -e NODE_ENV=development -e MONGODB_URL=mongodb://mongo-prod:27017/node-express-prod -e JWT_SECRET=prodSecretKeyUltraSecureLongEnough2026 Caps -e JWT_ACCESS_EXPIRATION_MINUTES=30 -e JWT_REFRESH_EXPIRATION_DAYS=30 -e SMTP_HOST=smtp.example.com -e SMTP_PORT=587 -e SMTP_USERNAME=prod_user -e SMTP_PASSWORD=prod_pass -e EMAIL_FROM=prod@example.com ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 
                 sh "docker rm -f cadvisor || true"
                 sh "docker run -d --name cadvisor --network app-network -p 8081:8080 --volume=/var/run:/var/run:ro --volume=/sys:/sys:ro --volume=/var/lib/docker/:/var/lib/docker:ro gcr.io/cadvisor/cadvisor:latest || true"
@@ -134,9 +125,9 @@ pipeline {
                 
                 echo '🔍 Verifying health reports for production stack...'
                 sh "sleep 15"
-                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-prod:3000/v1/docs/ || echo 'Production live endpoint is actively allocating Mongoose server threads.'"
-                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://prometheus:9090/-/ready || true"
-                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://grafana:3000/api/health || true"
+                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://node-app-prod:3000/v1/docs/"
+                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://prometheus:9090/-/ready"
+                sh "docker run --rm --network app-network curlimages/curl:7.85.0 curl -sf http://grafana:3000/api/health"
                 sh "docker stats --no-stream node-app-prod mongo-prod || true"
             }
         }
